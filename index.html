@@ -1,49 +1,67 @@
-<!DOCTYPE html>
+<<!DOCTYPE html>
 <html>
 <head>
     <title>WhatsApp Bot Pairing</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; }
-        .container { background: #f5f5f5; border-radius: 10px; padding: 20px; }
-        input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
-        button { background: #25D366; color: white; border: none; cursor: pointer; }
-        .code { font-size: 24px; font-weight: bold; margin: 15px 0; padding: 15px; background: white; }
-        .whatsapp-btn { background: #25D366; color: white; text-decoration: none; padding: 10px; display: block; text-align: center; }
+        .container { background: #f5f5f5; border-radius: 10px; padding: 20px; text-align: center; }
+        .qr-container { margin: 20px 0; }
+        .pairing-code { 
+            font-size: 24px; 
+            font-weight: bold; 
+            margin: 15px 0; 
+            padding: 15px; 
+            background: white; 
+            border-radius: 5px;
+            display: inline-block;
+        }
+        .whatsapp-btn { 
+            background: #25D366; 
+            color: white; 
+            text-decoration: none; 
+            padding: 10px 20px; 
+            border-radius: 5px;
+            display: inline-block;
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>WhatsApp Bot Pairing</h1>
-        <input type="text" id="phone" placeholder="Enter phone number with country code" required>
-        <button onclick="generateCode()">Generate Pairing Code</button>
-        
-        <div id="result" style="display: none;">
-            <p>Your pairing code:</p>
-            <div class="code" id="pairCode"></div>
-            <a id="whatsappLink" class="whatsapp-btn">Link with WhatsApp</a>
-            <p>Code expires in 5 minutes</p>
+        <div class="qr-container">
+            <p>Scan QR code with WhatsApp</p>
+            <pre id="qr-code"></pre>
+        </div>
+        <div id="pairing-info" style="display: none;">
+            <p>Or use pairing code:</p>
+            <div class="pairing-code" id="pairing-code"></div>
+            <a id="whatsapp-link" class="whatsapp-btn" target="_blank">Link with WhatsApp</a>
         </div>
     </div>
 
     <script>
-        async function generateCode() {
-            const phone = document.getElementById('phone').value;
-            if (!phone) return alert('Please enter phone number');
+        // Connect to server for real-time updates
+        const eventSource = new EventSource('/events');
+        
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
             
-            const response = await fetch('/generate-code', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone })
-            });
+            if (data.qr) {
+                document.getElementById('qr-code').textContent = data.qr;
+            }
             
-            const data = await response.json();
-            if (data.error) return alert(data.error);
+            if (data.pairingCode) {
+                document.getElementById('pairing-code').textContent = data.pairingCode;
+                document.getElementById('whatsapp-link').href = 
+                    `https://wa.me/923237533251?text=Pair%20Code:%20${encodeURIComponent(data.pairingCode)}`;
+                document.getElementById('pairing-info').style.display = 'block';
+            }
             
-            document.getElementById('pairCode').textContent = data.code;
-            document.getElementById('whatsappLink').href = 
-                `https://wa.me/${data.phoneNumber}?text=Pair%20Code:%20${data.code}`;
-            document.getElementById('result').style.display = 'block';
-        }
+            if (data.connected) {
+                document.getElementById('qr-code').textContent = '✅ Connected to WhatsApp!';
+            }
+        };
     </script>
 </body>
 </html>

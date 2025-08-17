@@ -1,65 +1,28 @@
-const { Boom } = require('@hapi/boom');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const express = require('express');
 const qrcode = require('qrcode-terminal');
-const { v4: uuidv4 } = require('uuid');
-const P = require('pino');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Configuration
-const CHANNEL_NAME = "RED DRAGON";
-const CHANNEL_JID = "120363043584356281@g.us";
-const OWNER_NUMBER = "923237533251";
-const OWNER_URL = `https://wa.me/${OWNER_NUMBER}`;
-
-// Store active pairing codes
-const activeCodes = new Map();
-
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Generate pairing code
-function generatePairCode() {
-    const randomChars = uuidv4().substr(0, 4).toUpperCase();
-    const code = `PARI-${randomChars}`;
-    const expiresAt = Date.now() + 5 * 60 * 1000;
-    
-    activeCodes.set(code, {
-        expiresAt,
-        qr: null,
-        socket: null,
-        phone: null
-    });
-    
-    setTimeout(() => {
-        if (activeCodes.has(code)) activeCodes.delete(code);
-    }, 5 * 60 * 1000);
-    
-    return code;
+// Ensure public directory exists
+const publicDir = path.join(__dirname, 'public');
+if (!fs.existsSync(publicDir)) {
+    fs.mkdirSync(publicDir);
 }
+
+// Serve static files
+app.use(express.static(publicDir));
 
 // Web interface
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-app.post('/generate-code', (req, res) => {
-    const phoneNumber = req.body.phone;
-    if (!phoneNumber || !phoneNumber.match(/^\d{10,15}$/)) {
-        return res.status(400).json({ error: "Invalid phone number" });
-    }
-
-    const code = generatePairCode();
-    res.json({ code, phoneNumber });
+    res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     startWhatsAppBot();
 });
@@ -73,25 +36,23 @@ async function startWhatsAppBot() {
         version,
         printQRInTerminal: true,
         auth: state,
-        logger: P({ level: 'silent' })
+        logger: { level: 'silent' }
     });
 
     sock.ev.on('connection.update', (update) => {
         const { connection, qr, lastDisconnect } = update;
         
         if (qr) {
-            activeCodes.forEach((value, code) => {
-                if (!value.qr) {
-                    value.qr = qr;
-                    value.socket = sock;
-                    qrcode.generate(qr, { small: true });
-                }
-            });
+            qrcode.generate(qr, { small: true });
+            console.log('QR Code generated - scan with WhatsApp');
         }
         
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) startWhatsAppBot();
+            if (shouldReconnect) {
+                console.log('Reconnecting...');
+                startWhatsAppBot();
+            }
         } else if (connection === 'open') {
             console.log('WhatsApp connected!');
         }
@@ -99,24 +60,24 @@ async function startWhatsAppBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
+    // Request pairing code if not registered
+    if (!state.creds.registered) {
+        const phoneNumber = "923237533251"; // Your bot's number
+        const pairingCode = await sock.requestPairingCode(phoneNumber);
+        console.log(`Pairing code: ${pairingCode}`);
+        
+        // Generate WhatsApp link
+        const whatsappLink = `https://wa.me/${phoneNumber}?text=Pair%20Code:%20${pairingCode}`;
+        console.log(`Link to pair: ${whatsappLink}`);
+    }
+
     sock.ev.on('messages.upsert', async ({ messages }) => {
         const msg = messages[0];
         if (!msg.message) return;
         
         const from = msg.key.remoteJid;
         const messageText = msg.message.conversation || 
-                          (msg.message.extendedTextMessage?.text || '');
-
-        // Pairing code verification
-        if (messageText.includes('PARI-') && messageText.length === 9) {
-            const code = messageText.trim();
-            if (activeCodes.has(code)) {
-                activeCodes.get(code).phone = from;
-                await sock.sendMessage(from, { 
-                    text: `✅ Pairing successful! You're now connected to the bot.`
-                });
-            }
-        }
+                         (msg.message.extendedTextMessage?.text || '');
 
         // Command handler
         if (messageText.startsWith('.')) {
@@ -132,81 +93,14 @@ async function startWhatsAppBot() {
             }
             else if (command === '.owner') {
                 await sock.sendMessage(from, {
-                    text: `👑 Owner Contact:\n${OWNER_URL}`,
+                    text: `👑 Owner Contact:\nhttps://wa.me/923237533251`,
                     detectLinks: true
                 });
-            }
-            else if (command === '.menu' || command === '.help') {
-                const menu = `
-╭───────[ *BOT COMMANDS* ]───────╮
-│                                 │
-│  .ping   ➤ Check bot speed      │
-│  .owner  ➤ Show owner contact   │
-│  .menu   ➤ Show this menu       │
-│  .alive  ➤ Check bot status     │
-│  .vv     ➤ Reveal ViewOnce media│
-│                                 │
-╰─────────────────────────────────╯
-                `;
-                await sock.sendMessage(from, { text: menu.trim() });
-            }
-            else if (command === '.alive') {
-                const uptime = process.uptime();
-                const h = Math.floor(uptime / 3600);
-                const m = Math.floor((uptime % 3600) / 60);
-                const s = Math.floor(uptime % 60);
-                const runtime = `${h}h ${m}m ${s}s`;
-                
-                await sock.sendMessage(from, {
-                    text: `✅ Bot is alive!\n⏰ Uptime: ${runtime}\n📅 ${new Date().toLocaleString()}`
-                });
-            }
-            else if (command === '.vv') {
-                const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-                let mediaMessage;
-
-                if (quoted?.viewOnceMessage?.message) {
-                    mediaMessage = { message: quoted.viewOnceMessage.message };
-                }
-
-                if (mediaMessage) {
-                    try {
-                        const buffer = await downloadMediaMessage(mediaMessage, "buffer", {}, { logger: P({ level: "silent" }) });
-                        const isVideo = !!mediaMessage.message.videoMessage;
-
-                        await sock.sendMessage(from, {
-                            [isVideo ? "video" : "image"]: buffer,
-                            caption: "*ViewOnce revealed by bot*"
-                        });
-                    } catch (err) {
-                        console.error(err);
-                        await sock.sendMessage(from, {
-                            text: "❌ Failed to fetch media"
-                        });
-                    }
-                } else {
-                    await sock.sendMessage(from, {
-                        text: "❗ Reply to a ViewOnce message"
-                    });
-                }
-            }
-        }
-
-        // Message forwarding
-        if (!messageText.startsWith('.') && !messageText.includes('PARI-') && from !== CHANNEL_JID) {
-            try {
-                await sock.sendMessage(CHANNEL_JID, {
-                    text: `> Forwarded\n${CHANNEL_NAME}\n\n${messageText}`,
-                    contextInfo: {
-                        forwardedNewsletterMessageInfo: {
-                            newsletterJid: from,
-                            serverMessageId: msg.key.id
-                        }
-                    }
-                });
-            } catch (error) {
-                console.error('Forward error:', error);
             }
         }
     });
 }
+
+process.on('unhandledRejection', (err) => {
+    console.error('Unhandled rejection:', err);
+});
