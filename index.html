@@ -1,67 +1,142 @@
-<<!DOCTYPE html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WhatsApp Bot Pairing</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; }
-        .container { background: #f5f5f5; border-radius: 10px; padding: 20px; text-align: center; }
-        .qr-container { margin: 20px 0; }
-        .pairing-code { 
-            font-size: 24px; 
-            font-weight: bold; 
-            margin: 15px 0; 
-            padding: 15px; 
-            background: white; 
-            border-radius: 5px;
-            display: inline-block;
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
         }
-        .whatsapp-btn { 
-            background: #25D366; 
-            color: white; 
-            text-decoration: none; 
-            padding: 10px 20px; 
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #25D366;
+            text-align: center;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
             border-radius: 5px;
-            display: inline-block;
-            margin: 10px 0;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #25D366;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #128C7E;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            background-color: #f0f8ff;
+            display: none;
+        }
+        .pairing-code {
+            font-size: 24px;
+            font-weight: bold;
+            color: #25D366;
+            text-align: center;
+            margin: 15px 0;
+        }
+        .whatsapp-btn {
+            display: block;
+            background-color: #25D366;
+            color: white;
+            text-align: center;
+            padding: 10px;
+            border-radius: 5px;
+            text-decoration: none;
+            margin-top: 10px;
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>WhatsApp Bot Pairing</h1>
-        <div class="qr-container">
-            <p>Scan QR code with WhatsApp</p>
-            <pre id="qr-code"></pre>
+        <div class="input-group">
+            <label for="phone">Enter your WhatsApp number (with country code):</label>
+            <input type="tel" id="phone" placeholder="e.g. 923237533251" required>
         </div>
-        <div id="pairing-info" style="display: none;">
-            <p>Or use pairing code:</p>
+        <button id="generate-btn">Generate Pairing Code</button>
+        <div id="error" class="error"></div>
+        
+        <div id="result" class="result">
+            <p>Your pairing code:</p>
             <div class="pairing-code" id="pairing-code"></div>
-            <a id="whatsapp-link" class="whatsapp-btn" target="_blank">Link with WhatsApp</a>
+            <p>This code will expire in 5 minutes</p>
+            <a id="whatsapp-link" class="whatsapp-btn" target="_blank">Open WhatsApp to Pair</a>
         </div>
     </div>
 
     <script>
-        // Connect to server for real-time updates
-        const eventSource = new EventSource('/events');
-        
-        eventSource.onmessage = (event) => {
-            const data = JSON.parse(event.data);
+        document.getElementById('generate-btn').addEventListener('click', async () => {
+            const phone = document.getElementById('phone').value.trim();
+            const errorElement = document.getElementById('error');
+            const resultElement = document.getElementById('result');
             
-            if (data.qr) {
-                document.getElementById('qr-code').textContent = data.qr;
+            errorElement.textContent = '';
+            resultElement.style.display = 'none';
+            
+            if (!phone) {
+                errorElement.textContent = 'Please enter a phone number';
+                return;
             }
             
-            if (data.pairingCode) {
-                document.getElementById('pairing-code').textContent = data.pairingCode;
-                document.getElementById('whatsapp-link').href = 
-                    `https://wa.me/923237533251?text=Pair%20Code:%20${encodeURIComponent(data.pairingCode)}`;
-                document.getElementById('pairing-info').style.display = 'block';
+            try {
+                const response = await fetch('/generate-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ phone })
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    errorElement.textContent = data.error;
+                    return;
+                }
+                
+                document.getElementById('pairing-code').textContent = data.code;
+                document.getElementById('whatsapp-link').href = data.whatsappLink;
+                resultElement.style.display = 'block';
+                
+            } catch (error) {
+                errorElement.textContent = 'Failed to generate pairing code. Please try again.';
+                console.error('Error:', error);
             }
-            
-            if (data.connected) {
-                document.getElementById('qr-code').textContent = '✅ Connected to WhatsApp!';
-            }
-        };
+        });
     </script>
 </body>
 </html>
