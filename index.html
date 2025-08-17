@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WhatsApp Bot Pairing</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; }
+        .container { background: #f5f5f5; border-radius: 10px; padding: 20px; }
+        input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        button { background: #25D366; color: white; border: none; cursor: pointer; }
+        .code { font-size: 24px; font-weight: bold; margin: 15px 0; padding: 15px; background: white; }
+        .whatsapp-btn { background: #25D366; color: white; text-decoration: none; padding: 10px; display: block; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WhatsApp Bot Pairing</h1>
+        <input type="text" id="phone" placeholder="Enter phone number with country code" required>
+        <button onclick="generateCode()">Generate Pairing Code</button>
+        
+        <div id="result" style="display: none;">
+            <p>Your pairing code:</p>
+            <div class="code" id="pairCode"></div>
+            <a id="whatsappLink" class="whatsapp-btn">Link with WhatsApp</a>
+            <p>Code expires in 5 minutes</p>
+        </div>
+    </div>
+
+    <script>
+        async function generateCode() {
+            const phone = document.getElementById('phone').value;
+            if (!phone) return alert('Please enter phone number');
+            
+            const response = await fetch('/generate-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone })
+            });
+            
+            const data = await response.json();
+            if (data.error) return alert(data.error);
+            
+            document.getElementById('pairCode').textContent = data.code;
+            document.getElementById('whatsappLink').href = 
+                `https://wa.me/${data.phoneNumber}?text=Pair%20Code:%20${data.code}`;
+            document.getElementById('result').style.display = 'block';
+        }
+    </script>
+</body>
+</html>
